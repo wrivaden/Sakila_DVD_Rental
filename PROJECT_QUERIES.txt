@@ -1,0 +1,111 @@
+/*WORKSPACE 1 -Question 1 - What were the Total Rental Orders by Category?
+We want to understand more about the movies that families are watching. The following categories are considered family movies:
+Animation, Children, Classics, Comedy, Family and Music.
+Create a query that lists each movie, the film category it is clASsified in, and the number of times it hAS been rented out.
+*/
+
+SELECT sub.film_title, sub.category_name, 
+COUNT(sub.film_title) AS rental_count
+FROM (
+		SELECT f.title AS film_title, c.name AS category_name
+		FROM film f
+		JOIN  film_category fc
+		ON fc.film_id = f.film_id
+		JOIN category c
+		ON c.category_id = fc.category_id
+		JOIN inventory i
+		ON i.film_id = f.film_id
+		JOIN rental r
+		ON r.inventory_id = i.inventory_id
+		AND c.name in ('Animation', 'Children', 'Classics','Comedy', 'Family','Music'))sub
+GROUP BY 1, 2
+ORDER BY 2, 1;
+
+/* WORKSPACE 1- Question 3 - What were the Rental Durations by Category per Quartile?
+Finally, provide a table with the family-friendly film category, each of the quartiles, and the corresponding count of movies within each 
+combination of film category for each corresponding rental duration category.
+*/
+
+SELECT category_name, standard_quartile, count(*) 
+FROM (
+		SELECT c.name AS category_name, f.rental_duration,
+		ntile(4) OVER (ORDER BY f.rental_duration) AS standard_quartile
+		FROM film f
+		JOIN  film_category fc
+		ON fc.film_id = f.film_id
+		JOIN category c
+		ON c.category_id = fc.category_id
+		AND c.name in ('Animation', 'Children', 'Classics','Comedy', 'Family','Music')
+		ORDER BY  1,2,3
+		) sub
+GROUP BY 1, 2
+ORDER BY 1, 2;
+
+/* WORKSPACE 2 - Question 1 - How are the two Stores compared by Monthly Rentals for all the Years?
+We want to find out how the two stores compare in their count of rental orders during every month for all the years we have data for. 
+Write a query that returns the store ID for the store, the year and month and the number of rental orders each store hAS fulfilled
+for that month. Your table should include a column for each of the following: year, month, store ID and count of rental orders fulfilled during that month.
+*/
+
+SELECT 	DATE_PART('month', rental_date) AS rental_month,
+		DATE_PART('year', rental_date) AS rental_year,
+		s.store_id AS Store_ID,
+		COUNT(r.rental_id) AS count_rentals
+FROM rental r
+JOIN staff t
+ON t.staff_id = r.staff_id
+JOIN store s
+ON s.store_id = t.store_id
+GROUP BY 1, 2, 3
+ORDER BY 4 DESC;
+
+
+/* WORKSPACE 2 - Question 3 - Which are the Top 10 Highest Paying Customers with the Highest Payment Differences?
+Finally, for each of these top 10 paying customers, I would like to find out the difference across their monthly payments during 2007. 
+PleASe go ahead and write a query to compare the payment amounts in each successive month. Repeat this for each of these 10 paying customers.
+Also, it will be tremendously helpful if you can identify the customer name who paid the most difference in terms of payments.
+*/
+
+WITH lead AS (SELECT p.customer_id, 
+              c.first_name ||' '|| c.last_name AS customer_name,
+		      DATE_PART('month', p.payment_date) AS pay_mon,
+		      DATE_PART('year', p.payment_date) AS pay_year,
+		      COUNT(p.rental_id) AS pay_countpermon,
+		      SUM(p.amount) AS pay_amount,
+       		  LEAD(SUM(p.amount)) OVER (partition by p.customer_id ORDER BY DATE_PART('month', p.payment_date)) AS lead,
+        	  LEAD(SUM(p.amount)) OVER (partition by p.customer_id ORDER BY DATE_PART('month', p.payment_date)) - SUM(p.amount) AS lead_diff
+		      FROM payment p
+		      JOIN customer c
+		      ON c.customer_id = p.customer_id
+		      AND DATE_PART('year', p.payment_date) = '2007'
+		      GROUP BY 1, 2,3, 4
+		      ORDER BY  2,3,8 desc), 
+
+top_payers AS (SELECT customer_id, customer_name, 
+               SUM(pay_countpermon) AS rentals,
+		       SUM(pay_amount) AS payment
+		       FROM (SELECT c.customer_id, 
+                     c.first_name ||' '|| c.last_name AS customer_name,
+		             DATE_PART('month', p.payment_date) AS pay_mon,
+		             DATE_PART('year', p.payment_date) AS pay_year,
+	                 COUNT(p.rental_id) AS pay_countpermon,
+		             SUM(p.amount) AS pay_amount
+		             FROM payment p
+		             JOIN customer c
+		             ON c.customer_id = p.customer_id
+		             AND DATE_PART('year', p.payment_date) = '2007'
+		             GROUP BY 1, 2,3, 4
+		             ORDER BY 2, 3) sub
+	             GROUP BY 1, 2
+	             ORDER BY 4 desc
+	             limit 10
+               )
+
+SELECT  
+l.customer_name, 
+MAX(l.lead_diff) AS diff
+FROM lead l
+GROUP BY 1
+HAVING  l.customer_name in (SELECT t.customer_name
+                            FROM top_payers t)
+ORDER BY 2 DESC;
